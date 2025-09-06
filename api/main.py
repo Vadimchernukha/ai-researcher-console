@@ -18,7 +18,7 @@ from supabase import create_client, Client
 from collections import defaultdict, deque
 from fastapi.responses import PlainTextResponse
 import uvicorn
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
@@ -69,6 +69,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Explicit OPTIONS handler for preflight requests
+@app.options("/{path:path}")
+async def options_preflight(path: str):
+    return Response(status_code=204)
 
 # Rate limiting (per IP + path)
 _rate_buckets: Dict[str, deque] = defaultdict(deque)
