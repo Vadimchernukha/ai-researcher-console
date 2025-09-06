@@ -18,10 +18,13 @@ from pydantic import BaseModel, Field
 # from playwright.async_api import async_playwright  # Временно отключено
 
 # Добавляем отладочную информацию
-print("Starting application...")
-print(f"Python path: {sys.path}")
-print(f"Current working directory: {os.getcwd()}")
-print(f"Files in current directory: {os.listdir('.')}")
+print("Starting AI Researcher Console API...")
+try:
+    print(f"Python path: {sys.path}")
+    print(f"Current working directory: {os.getcwd()}")
+    print(f"Files in current directory: {os.listdir('.')}")
+except Exception as e:
+    print(f"Debug info error: {e}")
 
 # Добавляем путь к исходному коду
 # sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # Временно отключено
@@ -135,11 +138,30 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Проверка состояния сервиса"""
-    return HealthResponse(
-        status="healthy",
-        timestamp=datetime.now().isoformat(),
-        version="1.0.0"
-    )
+    try:
+        # Проверяем доступность основных компонентов
+        status = "healthy"
+        
+        # Проверка переменных окружения
+        required_env_vars = ["GOOGLE_API_KEY"]
+        missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+        
+        if missing_vars:
+            status = "degraded"
+            logger.warning(f"Missing environment variables: {missing_vars}")
+        
+        return HealthResponse(
+            status=status,
+            timestamp=datetime.now().isoformat(),
+            version="1.0.0"
+        )
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return HealthResponse(
+            status="unhealthy",
+            timestamp=datetime.now().isoformat(),
+            version="1.0.0"
+        )
 
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_website(
@@ -272,8 +294,30 @@ async def set_default_prompt(
 @app.on_event("startup")
 async def startup_event():
     """Инициализация при запуске"""
-    logger.info("Starting AI Researcher Console API...")
-    logger.info("API initialized successfully (minimal mode)")
+    try:
+        logger.info("Starting AI Researcher Console API...")
+        
+        # Проверка критических переменных окружения
+        port = os.getenv("PORT", "8000")
+        environment = os.getenv("ENVIRONMENT", "development")
+        
+        logger.info(f"Environment: {environment}")
+        logger.info(f"Port: {port}")
+        
+        # Проверка наличия Google API ключей
+        google_key = os.getenv("GOOGLE_API_KEY")
+        if google_key:
+            logger.info("Google API key found")
+        else:
+            logger.warning("Google API key not found - some features will be disabled")
+        
+        logger.info("API initialized successfully (minimal mode)")
+        print("✅ API startup completed successfully")
+        
+    except Exception as e:
+        logger.error(f"Startup error: {e}")
+        print(f"❌ API startup failed: {e}")
+        raise
 
 @app.on_event("shutdown")
 async def shutdown_event():
