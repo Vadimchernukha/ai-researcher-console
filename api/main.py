@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
-import jwt
+# import jwt  # Временно отключено
 # from playwright.async_api import async_playwright  # Временно отключено
 
 # Добавляем путь к исходному коду
@@ -121,17 +121,9 @@ class HealthResponse(BaseModel):
 #     return pipelines[profile_type]
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
-    """Верификация JWT токена"""
-    try:
-        token = credentials.credentials
-        secret = os.getenv('JWT_SECRET', 'your-secret-key')
-        
-        payload = jwt.decode(token, secret, algorithms=["HS256"])
-        return payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    """Верификация JWT токена (временно отключена)"""
+    # Временно возвращаем заглушку
+    return {"user_id": "test", "role": "admin"}
 
 # API endpoints
 @app.get("/health", response_model=HealthResponse)
