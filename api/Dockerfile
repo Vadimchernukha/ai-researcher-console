@@ -40,4 +40,4 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/home/app/.cache/ms-playwright
 EXPOSE 8000
 
 # Команда запуска
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
