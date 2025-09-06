@@ -48,7 +48,7 @@ class EnhancedPipeline:
             if not api_key:
                 raise ValueError("GEMINI_API_KEY or GOOGLE_API_KEY not set")
             genai.configure(api_key=api_key)
-            self.gemini_model = genai.GenerativeModel('gemini-pro')
+            self.gemini_model = genai.GenerativeModel('gemini-1.5-flash')
         return self.gemini_model
     
     async def _extract_content(self, url: str) -> ProcessingResult:
