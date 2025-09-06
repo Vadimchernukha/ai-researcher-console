@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 import jwt
-from playwright.async_api import async_playwright
+# from playwright.async_api import async_playwright  # Временно отключено
 
 # Добавляем путь к исходному коду
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
