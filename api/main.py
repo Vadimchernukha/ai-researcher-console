@@ -9,6 +9,11 @@ import os
 import sys
 from datetime import datetime
 from typing import Dict, Any, Optional
+import time
+import json
+import httpx
+from bs4 import BeautifulSoup
+import google.generativeai as genai
 import uvicorn
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -135,6 +140,32 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
     # Временно возвращаем заглушку
     return {"user_id": "test", "role": "admin"}
 
+
+def _get_page_text(url: str, timeout_seconds: float = 10.0) -> str:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+    }
+    with httpx.Client(follow_redirects=True, timeout=timeout_seconds) as client:
+        r = client.get(url, headers=headers)
+        r.raise_for_status()
+        html = r.text
+    soup = BeautifulSoup(html, "lxml")
+    for tag in soup(["script", "style", "noscript", "iframe"]):
+        tag.decompose()
+    text = soup.get_text(" ", strip=True)
+    return text[:6000]
+
+
+def _get_gemini_model():
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY is not set")
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel(
+        model_name="gemini-1.5-flash-latest",
+        generation_config={"temperature": 0.1, "response_mime_type": "application/json"},
+    )
+
 # API endpoints
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
@@ -167,20 +198,79 @@ async def health_check():
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_website(
     request: AnalysisRequest,
-    token_data: Dict[str, Any] = Depends(verify_token)
-    # pipeline: EnhancedPipeline = Depends(get_pipeline)  # Временно отключено
+    token_data: Dict[str, Any] = Depends(verify_token),
 ):
-    """Анализ одного веб-сайта (временно отключен)"""
-    
-    # Временно возвращаем заглушку
-    return AnalysisResponse(
-        domain=request.domain,
-        classification="Service temporarily unavailable",
-        confidence=0.0,
-        comment="Analysis service is being initialized",
-        processing_time=0.0,
-        raw_data={"status": "initializing"}
-    )
+    """Минимальный анализ сайта: httpx + BeautifulSoup + Gemini классификация."""
+
+    started = time.time()
+
+    try:
+        url = request.url
+        if not url.startswith("http"):
+            url = f"https://{url}"
+
+        # 1) Получение текста страницы
+        page_text = await asyncio.to_thread(_get_page_text, url)
+        if not page_text or len(page_text) < 50:
+            raise HTTPException(status_code=422, detail="Insufficient page content")
+
+        # 2) Классификация через Gemini (простая схема Match/No Match)
+        model = await asyncio.to_thread(_get_gemini_model)
+        prompt = (
+            "You are a business analyst. Decide if this website represents a software product/company "
+            "relevant to B2B software profiles. Return strict JSON with fields: reasoning, classification, final_output.\n\n"
+            f"Content:\n{page_text[:4000]}\n\n"
+            "Rules: classification is either 'Match' or 'No Match'. final_output must be either '+ Relevant - Software Lead' or '- Not Relevant'."
+        )
+
+        resp = await model.generate_content_async(prompt)
+        raw_text = (resp.text or "").strip()
+        parsed = None
+        try:
+            parsed = json.loads(raw_text)
+        except Exception:
+            # try first JSON object fallback
+            if "{" in raw_text and "}" in raw_text:
+                candidate = raw_text[raw_text.find("{") : raw_text.rfind("}") + 1]
+                try:
+                    parsed = json.loads(candidate)
+                except Exception:
+                    parsed = None
+
+        if not parsed or not isinstance(parsed, dict):
+            parsed = {
+                "reasoning": "Fallback: could not parse structured response",
+                "classification": "No Match",
+                "final_output": "- Not Relevant",
+            }
+
+        classification = str(parsed.get("classification", "No Match")).strip()
+        final_output = str(parsed.get("final_output", "- Not Relevant")).strip()
+        reasoning = str(parsed.get("reasoning", "")).strip()
+
+        took = time.time() - started
+        return AnalysisResponse(
+            domain=request.domain,
+            classification=final_output if classification == "Match" else "Not Relevant",
+            confidence=70.0 if classification == "Match" else 30.0,
+            comment=reasoning or "Minimal Gemini classification",
+            processing_time=took,
+            raw_data={"gemini": parsed},
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Analyze error for {request.url}: {e}")
+        took = time.time() - started
+        return AnalysisResponse(
+            domain=request.domain,
+            classification="Service temporarily unavailable",
+            confidence=0.0,
+            comment=str(e),
+            processing_time=took,
+            raw_data={"error": str(e)},
+        )
 
 @app.post("/analyze-batch")
 async def analyze_batch(
