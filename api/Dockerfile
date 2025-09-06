@@ -35,15 +35,19 @@ COPY . .
 # Изменение владельца файлов
 RUN chown -R app:app /app
 
+# Проверка что main.py доступен и синтаксически корректен
+RUN python -m py_compile main.py
+RUN python -c "import main; print('✅ main.py imported successfully')"
+
 # Переменные окружения
 ENV PYTHONPATH=/app
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-# Переключение на пользователя app
-USER app
+# Остаемся как root для Railway (некоторые платформы требуют root)
+# USER app
 
 # Экспорт порта
 EXPOSE 8000
 
-# Команда запуска с поддержкой переменной PORT от Railway
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Команда запуска с поддержкой переменной PORT от Railway  
+CMD ["sh", "-c", "python -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
