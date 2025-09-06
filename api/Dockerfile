@@ -17,9 +17,8 @@ COPY requirements.txt .
 # Установка Python зависимостей
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Проверка установки uvicorn
-RUN which uvicorn || echo "uvicorn not found in PATH"
-RUN python -c "import uvicorn; print('uvicorn imported successfully')"
+# Установка uvicorn отдельно
+RUN pip install uvicorn[standard]==0.24.0
 
 # Проверка установки uvicorn
 RUN which uvicorn || echo "uvicorn not found in PATH"
