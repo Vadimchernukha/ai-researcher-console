@@ -20,11 +20,12 @@ from playwright.async_api import async_playwright
 # Добавляем путь к исходному коду
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from src.pipelines.classification_pipeline import EnhancedPipeline
-from src.analyzers.ai_analyzer import MultiStageAnalyzer
-from src.scrapers.content_scraper import smart_fetch_content
-import config.settings as config
-from prompt_manager import initialize_prompt_manager, get_prompt_manager
+# Временно отключаем сложные импорты для тестирования
+# from src.pipelines.classification_pipeline import EnhancedPipeline
+# from src.analyzers.ai_analyzer import MultiStageAnalyzer
+# from src.scrapers.content_scraper import smart_fetch_content
+# import config.settings as config
+# from prompt_manager import initialize_prompt_manager, get_prompt_manager
 
 # Настройка логирования
 logging.basicConfig(
@@ -72,52 +73,52 @@ class HealthResponse(BaseModel):
     version: str
 
 # Глобальные переменные
-pipelines: Dict[str, EnhancedPipeline] = {}
-browser_context = None
+# pipelines: Dict[str, EnhancedPipeline] = {}
+# browser_context = None
 
-# Инициализация
-async def initialize_pipelines():
-    """Инициализация пайплайнов для всех профилей"""
-    global pipelines
-    
-    profiles = [
-        'software', 'iso', 'telemedicine', 'pharma', 'edtech', 'marketing',
-        'fintech', 'healthtech', 'elearning', 'software_products',
-        'salesforce_partner', 'hubspot_partner', 'aws', 'shopify',
-        'ai_companies', 'mobile_app', 'recruiting', 'banking', 'platforms'
-    ]
-    
-    for profile in profiles:
-        try:
-            pipelines[profile] = EnhancedPipeline(profile=profile)
-            logger.info(f"Initialized pipeline for profile: {profile}")
-        except Exception as e:
-            logger.error(f"Failed to initialize pipeline for {profile}: {e}")
+# Инициализация (временно отключена)
+# async def initialize_pipelines():
+#     """Инициализация пайплайнов для всех профилей"""
+#     global pipelines
+#     
+#     profiles = [
+#         'software', 'iso', 'telemedicine', 'pharma', 'edtech', 'marketing',
+#         'fintech', 'healthtech', 'elearning', 'software_products',
+#         'salesforce_partner', 'hubspot_partner', 'aws', 'shopify',
+#         'ai_companies', 'mobile_app', 'recruiting', 'banking', 'platforms'
+#     ]
+#     
+#     for profile in profiles:
+#         try:
+#             pipelines[profile] = EnhancedPipeline(profile=profile)
+#             logger.info(f"Initialized pipeline for profile: {profile}")
+#         except Exception as e:
+#             logger.error(f"Failed to initialize pipeline for {profile}: {e}")
 
-async def initialize_browser():
-    """Инициализация браузера"""
-    global browser_context
-    
-    try:
-        playwright = await async_playwright().start()
-        browser = await playwright.chromium.launch(
-            headless=True,
-            args=['--disable-dev-shm-usage', '--no-sandbox']
-        )
-        browser_context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        )
-        logger.info("Browser initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize browser: {e}")
-        raise
+# async def initialize_browser():
+#     """Инициализация браузера"""
+#     global browser_context
+#     
+#     try:
+#         playwright = await async_playwright().start()
+#         browser = await playwright.chromium.launch(
+#             headless=True,
+#             args=['--disable-dev-shm-usage', '--no-sandbox']
+#         )
+#         browser_context = await browser.new_context(
+#             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+#         )
+#         logger.info("Browser initialized successfully")
+#     except Exception as e:
+#         logger.error(f"Failed to initialize browser: {e}")
+#         raise
 
-# Зависимости
-async def get_pipeline(profile_type: str) -> EnhancedPipeline:
-    """Получение пайплайна для указанного профиля"""
-    if profile_type not in pipelines:
-        raise HTTPException(status_code=400, detail=f"Unsupported profile type: {profile_type}")
-    return pipelines[profile_type]
+# Зависимости (временно отключены)
+# async def get_pipeline(profile_type: str) -> EnhancedPipeline:
+#     """Получение пайплайна для указанного профиля"""
+#     if profile_type not in pipelines:
+#         raise HTTPException(status_code=400, detail=f"Unsupported profile type: {profile_type}")
+#     return pipelines[profile_type]
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
     """Верификация JWT токена"""
@@ -145,54 +146,20 @@ async def health_check():
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_website(
     request: AnalysisRequest,
-    token_data: Dict[str, Any] = Depends(verify_token),
-    pipeline: EnhancedPipeline = Depends(get_pipeline)
+    token_data: Dict[str, Any] = Depends(verify_token)
+    # pipeline: EnhancedPipeline = Depends(get_pipeline)  # Временно отключено
 ):
-    """Анализ одного веб-сайта"""
+    """Анализ одного веб-сайта (временно отключен)"""
     
-    start_time = datetime.now()
-    
-    try:
-        # Нормализация URL
-        url = request.url
-        if not url.startswith("http"):
-            url = f"https://{url}"
-        
-        # Извлечение домена
-        domain = url.replace("https://", "").replace("http://", "").split('/')[0].lower()
-        
-        logger.info(f"Starting analysis for {domain} with profile {request.profile_type}")
-        
-        # Проверка доступности браузера
-        if not browser_context:
-            raise HTTPException(status_code=500, detail="Browser not initialized")
-        
-        # Выполнение анализа
-        result = await pipeline.process_website_comprehensive(browser_context, url)
-        
-        if not result:
-            raise HTTPException(status_code=422, detail="Analysis failed - no result returned")
-        
-        processing_time = (datetime.now() - start_time).total_seconds()
-        
-        response = AnalysisResponse(
-            domain=domain,
-            classification=result.get("classification", "Unknown"),
-            confidence=result.get("confidence", 0.0),
-            comment=result.get("comment", ""),
-            processing_time=processing_time,
-            raw_data=result
-        )
-        
-        logger.info(f"Analysis completed for {domain}: {response.classification} ({response.confidence}%)")
-        
-        return response
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error analyzing {request.domain}: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+    # Временно возвращаем заглушку
+    return AnalysisResponse(
+        domain=request.domain,
+        classification="Service temporarily unavailable",
+        confidence=0.0,
+        comment="Analysis service is being initialized",
+        processing_time=0.0,
+        raw_data={"status": "initializing"}
+    )
 
 @app.post("/analyze-batch")
 async def analyze_batch(
@@ -255,28 +222,14 @@ async def process_batch_analysis(requests: list[AnalysisRequest], token_data: Di
 async def get_available_profiles():
     """Получение списка доступных профилей"""
     return {
-        "profiles": list(pipelines.keys()),
+        "profiles": ["software", "fintech", "edtech", "healthtech"],
         "descriptions": {
             "software": "Программные продукты и SaaS решения",
-            "iso": "Компании с ISO сертификацией",
-            "telemedicine": "Телемедицинские сервисы",
-            "pharma": "Фармацевтические компании",
-            "edtech": "Образовательные технологии",
-            "marketing": "Маркетинговые агентства",
             "fintech": "Финансовые технологии",
-            "healthtech": "Медицинские технологии",
-            "elearning": "Онлайн обучение",
-            "software_products": "Продуктовые IT компании",
-            "salesforce_partner": "Партнеры Salesforce",
-            "hubspot_partner": "Партнеры HubSpot",
-            "aws": "Партнеры AWS",
-            "shopify": "Партнеры Shopify",
-            "ai_companies": "AI компании",
-            "mobile_app": "Мобильные приложения",
-            "recruiting": "Рекрутинговые агентства",
-            "banking": "Банковские услуги",
-            "platforms": "IT платформы"
-        }
+            "edtech": "Образовательные технологии",
+            "healthtech": "Медицинские технологии"
+        },
+        "status": "Service temporarily in minimal mode"
     }
 
 @app.get("/prompts")
@@ -285,51 +238,18 @@ async def get_prompts(
     prompt_type: str = None,
     token_data: Dict[str, Any] = Depends(verify_token)
 ):
-    """Получение списка промптов (только для админов)"""
+    """Получение списка промптов (временно отключено)"""
     
-    # Проверка прав администратора
-    if token_data.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    try:
-        prompt_manager = get_prompt_manager()
-        auth_token = token_data.get("access_token")
-        
-        prompts = await prompt_manager.get_all_prompts(
-            auth_token, profile_type, prompt_type
-        )
-        
-        return {"prompts": prompts}
-        
-    except Exception as e:
-        logger.error(f"Error fetching prompts: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch prompts")
+    return {"prompts": [], "status": "Service temporarily unavailable"}
 
 @app.post("/prompts")
 async def create_prompt(
     prompt_data: Dict[str, Any],
     token_data: Dict[str, Any] = Depends(verify_token)
 ):
-    """Создание нового промпта (только для админов)"""
+    """Создание нового промпта (временно отключено)"""
     
-    # Проверка прав администратора
-    if token_data.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    try:
-        prompt_manager = get_prompt_manager()
-        auth_token = token_data.get("access_token")
-        
-        prompt = await prompt_manager.create_prompt(auth_token, prompt_data)
-        
-        if prompt:
-            return {"prompt": prompt}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to create prompt")
-            
-    except Exception as e:
-        logger.error(f"Error creating prompt: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create prompt")
+    return {"status": "Service temporarily unavailable"}
 
 @app.put("/prompts/{prompt_id}")
 async def update_prompt(
@@ -337,86 +257,30 @@ async def update_prompt(
     update_data: Dict[str, Any],
     token_data: Dict[str, Any] = Depends(verify_token)
 ):
-    """Обновление промпта (только для админов)"""
+    """Обновление промпта (временно отключено)"""
     
-    # Проверка прав администратора
-    if token_data.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    try:
-        prompt_manager = get_prompt_manager()
-        auth_token = token_data.get("access_token")
-        
-        prompt = await prompt_manager.update_prompt(auth_token, prompt_id, update_data)
-        
-        if prompt:
-            return {"prompt": prompt}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to update prompt")
-            
-    except Exception as e:
-        logger.error(f"Error updating prompt: {e}")
-        raise HTTPException(status_code=500, detail="Failed to update prompt")
+    return {"status": "Service temporarily unavailable"}
 
 @app.post("/prompts/{prompt_id}/set-default")
 async def set_default_prompt(
     prompt_id: str,
     token_data: Dict[str, Any] = Depends(verify_token)
 ):
-    """Установка промпта как активного по умолчанию (только для админов)"""
+    """Установка промпта как активного по умолчанию (временно отключено)"""
     
-    # Проверка прав администратора
-    if token_data.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    try:
-        prompt_manager = get_prompt_manager()
-        auth_token = token_data.get("access_token")
-        
-        success = await prompt_manager.set_default_prompt(auth_token, prompt_id)
-        
-        if success:
-            return {"message": "Prompt set as default successfully"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to set default prompt")
-            
-    except Exception as e:
-        logger.error(f"Error setting default prompt: {e}")
-        raise HTTPException(status_code=500, detail="Failed to set default prompt")
+    return {"status": "Service temporarily unavailable"}
 
 # События приложения
 @app.on_event("startup")
 async def startup_event():
     """Инициализация при запуске"""
     logger.info("Starting AI Researcher Console API...")
-    
-    try:
-        # Простая инициализация без браузера и пайплайнов
-        logger.info("API initialized successfully (minimal mode)")
-        
-        # Инициализация менеджера промптов
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_ANON_KEY")
-        if supabase_url and supabase_key:
-            initialize_prompt_manager(supabase_url, supabase_key)
-            logger.info("Prompt manager initialized")
-        else:
-            logger.warning("Supabase credentials not found, using static prompts")
-        
-        logger.info("API initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize API: {e}")
-        # Не поднимаем исключение, чтобы приложение могло запуститься
-        logger.warning("API started in minimal mode due to initialization errors")
+    logger.info("API initialized successfully (minimal mode)")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Очистка при завершении"""
     logger.info("Shutting down AI Researcher Console API...")
-    
-    if browser_context:
-        await browser_context.close()
-        logger.info("Browser context closed")
 
 # Запуск сервера
 if __name__ == "__main__":
