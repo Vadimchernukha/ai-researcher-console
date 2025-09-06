@@ -44,9 +44,9 @@ class EnhancedPipeline:
     async def _get_gemini_model(self):
         """Получение модели Gemini"""
         if not self.gemini_model:
-            api_key = os.getenv("GEMINI_API_KEY")
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             if not api_key:
-                raise ValueError("GEMINI_API_KEY not set")
+                raise ValueError("GEMINI_API_KEY or GOOGLE_API_KEY not set")
             genai.configure(api_key=api_key)
             self.gemini_model = genai.GenerativeModel('gemini-pro')
         return self.gemini_model
@@ -68,14 +68,35 @@ class EnhancedPipeline:
                 title_text = title.get_text().strip() if title else ""
                 
                 # Удаляем скрипты и стили
-                for script in soup(["script", "style"]):
+                for script in soup(["script", "style", "nav", "footer", "header"]):
                     script.decompose()
                 
-                # Получаем основной текст
+                # Получаем основной текст более агрессивно
                 text = soup.get_text()
                 lines = (line.strip() for line in text.splitlines())
                 chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
                 text = ' '.join(chunk for chunk in chunks if chunk)
+                
+                # Если текст слишком короткий, пробуем альтернативные методы
+                if len(text) < 100:
+                    # Пробуем получить текст из body
+                    body = soup.find('body')
+                    if body:
+                        text = body.get_text()
+                        lines = (line.strip() for line in text.splitlines())
+                        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+                        text = ' '.join(chunk for chunk in chunks if chunk)
+                
+                # Если все еще короткий, используем весь HTML как fallback
+                if len(text) < 100:
+                    text = response.text[:5000]  # Первые 5000 символов HTML
+                
+                # Дополнительно извлекаем текст из всех элементов
+                if len(text) < 200:
+                    all_text_elements = soup.find_all(['p', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+                    additional_text = ' '.join([elem.get_text().strip() for elem in all_text_elements if elem.get_text().strip()])
+                    if additional_text:
+                        text = additional_text[:3000]
                 
                 # Извлекаем мета-теги
                 meta_description = ""
