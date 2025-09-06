@@ -391,8 +391,8 @@ async def startup_event():
     logger.info("Starting AI Researcher Console API...")
     
     try:
-        await initialize_browser()
-        await initialize_pipelines()
+        # Простая инициализация без браузера и пайплайнов
+        logger.info("API initialized successfully (minimal mode)")
         
         # Инициализация менеджера промптов
         supabase_url = os.getenv("SUPABASE_URL")
@@ -406,7 +406,8 @@ async def startup_event():
         logger.info("API initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize API: {e}")
-        raise
+        # Не поднимаем исключение, чтобы приложение могло запуститься
+        logger.warning("API started in minimal mode due to initialization errors")
 
 @app.on_event("shutdown")
 async def shutdown_event():
