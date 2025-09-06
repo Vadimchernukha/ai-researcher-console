@@ -1,5 +1,6 @@
 FROM python:3.11-slim
 
+# Cache bust - updated 2024-01-15
 # Установка только базовых зависимостей
 RUN apt-get update && apt-get install -y \
     wget \
