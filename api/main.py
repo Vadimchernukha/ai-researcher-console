@@ -24,7 +24,7 @@ print(f"Current working directory: {os.getcwd()}")
 print(f"Files in current directory: {os.listdir('.')}")
 
 # Добавляем путь к исходному коду
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+# sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # Временно отключено
 
 # Временно отключаем сложные импорты для тестирования
 # from src.pipelines.classification_pipeline import EnhancedPipeline
