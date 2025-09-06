@@ -225,6 +225,65 @@ async def health_check():
             version="1.0.0"
         )
 
+async def _run_minimal_analysis(url: str, domain: str, profile_type: str) -> Dict[str, Any]:
+    """Общий минимальный анализ: возвращает словарь с полями для AnalysisResponse."""
+    started = time.time()
+
+    if not url.startswith("http"):
+        url = f"https://{url}"
+
+    # 1) Получение текста страницы
+    page_text = await asyncio.to_thread(_get_page_text, url)
+    if not page_text or len(page_text) < 50:
+        raise HTTPException(status_code=422, detail="Insufficient page content")
+
+    # 2) Классификация через Gemini (простая схема Match/No Match)
+    model = await asyncio.to_thread(_get_gemini_model)
+    prompt = (
+        "You are a business analyst. Decide if this website represents a software product/company "
+        "relevant to B2B software profiles. Return strict JSON with fields: reasoning, classification, final_output.\n\n"
+        f"Content:\n{page_text[:4000]}\n\n"
+        "Rules: classification is either 'Match' or 'No Match'. final_output must be either '+ Relevant - Software Lead' or '- Not Relevant'."
+    )
+
+    resp = await model.generate_content_async(prompt)
+    raw_text = (resp.text or "").strip()
+    parsed = None
+    try:
+        parsed = json.loads(raw_text)
+    except Exception:
+        if "{" in raw_text and "}" in raw_text:
+            candidate = raw_text[raw_text.find("{") : raw_text.rfind("}") + 1]
+            try:
+                parsed = json.loads(candidate)
+            except Exception:
+                parsed = None
+
+    if not parsed or not isinstance(parsed, dict):
+        parsed = {
+            "reasoning": "Fallback: could not parse structured response",
+            "classification": "No Match",
+            "final_output": "- Not Relevant",
+        }
+
+    classification = str(parsed.get("classification", "No Match")).strip()
+    final_output = str(parsed.get("final_output", "- Not Relevant")).strip()
+    reasoning = str(parsed.get("reasoning", "")).strip()
+    took = time.time() - started
+
+    result = {
+        "domain": domain,
+        "classification": final_output if classification == "Match" else "Not Relevant",
+        "confidence": 70.0 if classification == "Match" else 30.0,
+        "comment": reasoning or "Minimal Gemini classification",
+        "processing_time": took,
+        "raw_data": {"gemini": parsed},
+        "_url": url,
+        "_match": classification == "Match",
+    }
+    return result
+
+
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_website(
     request: AnalysisRequest,
@@ -232,60 +291,15 @@ async def analyze_website(
 ):
     """Минимальный анализ сайта: httpx + BeautifulSoup + Gemini классификация."""
 
-    started = time.time()
-
     try:
-        url = request.url
-        if not url.startswith("http"):
-            url = f"https://{url}"
-
-        # 1) Получение текста страницы
-        page_text = await asyncio.to_thread(_get_page_text, url)
-        if not page_text or len(page_text) < 50:
-            raise HTTPException(status_code=422, detail="Insufficient page content")
-
-        # 2) Классификация через Gemini (простая схема Match/No Match)
-        model = await asyncio.to_thread(_get_gemini_model)
-        prompt = (
-            "You are a business analyst. Decide if this website represents a software product/company "
-            "relevant to B2B software profiles. Return strict JSON with fields: reasoning, classification, final_output.\n\n"
-            f"Content:\n{page_text[:4000]}\n\n"
-            "Rules: classification is either 'Match' or 'No Match'. final_output must be either '+ Relevant - Software Lead' or '- Not Relevant'."
-        )
-
-        resp = await model.generate_content_async(prompt)
-        raw_text = (resp.text or "").strip()
-        parsed = None
-        try:
-            parsed = json.loads(raw_text)
-        except Exception:
-            # try first JSON object fallback
-            if "{" in raw_text and "}" in raw_text:
-                candidate = raw_text[raw_text.find("{") : raw_text.rfind("}") + 1]
-                try:
-                    parsed = json.loads(candidate)
-                except Exception:
-                    parsed = None
-
-        if not parsed or not isinstance(parsed, dict):
-            parsed = {
-                "reasoning": "Fallback: could not parse structured response",
-                "classification": "No Match",
-                "final_output": "- Not Relevant",
-            }
-
-        classification = str(parsed.get("classification", "No Match")).strip()
-        final_output = str(parsed.get("final_output", "- Not Relevant")).strip()
-        reasoning = str(parsed.get("reasoning", "")).strip()
-
-        took = time.time() - started
+        r = await _run_minimal_analysis(request.url, request.domain, request.profile_type)
         response_obj = AnalysisResponse(
-            domain=request.domain,
-            classification=final_output if classification == "Match" else "Not Relevant",
-            confidence=70.0 if classification == "Match" else 30.0,
-            comment=reasoning or "Minimal Gemini classification",
-            processing_time=took,
-            raw_data={"gemini": parsed},
+            domain=r["domain"],
+            classification=r["classification"],
+            confidence=r["confidence"],
+            comment=r["comment"],
+            processing_time=r["processing_time"],
+            raw_data=r["raw_data"],
         )
 
         # Save to Supabase if configured (best-effort)
@@ -294,7 +308,7 @@ async def analyze_website(
                 payload = {
                     "user_id": token_data.get("user_id"),
                     "domain": request.domain,
-                    "url": url,
+                    "url": r["_url"],
                     "profile_type": request.profile_type,
                     "status": "completed",
                     "result_classification": response_obj.classification,
@@ -313,7 +327,7 @@ async def analyze_website(
         raise
     except Exception as e:
         logger.error(f"Analyze error for {request.url}: {e}")
-        took = time.time() - started
+        took = 0.0
         response_obj = AnalysisResponse(
             domain=request.domain,
             classification="Service temporarily unavailable",
@@ -345,44 +359,119 @@ async def analyze_website(
 async def analyze_batch(
     requests: list[AnalysisRequest],
     background_tasks: BackgroundTasks,
-    token_data: Dict[str, Any] = Depends(verify_token)
+    token_data: Dict[str, Any] = Depends(verify_token),
 ):
-    """Анализ батча веб-сайтов (асинхронно)"""
-    
-    if len(requests) > 100:  # Лимит на размер батча
+    """Анализ батча сайтов: создает сессию (Supabase) и запускает фоновой процесс."""
+
+    if len(requests) > 100:
         raise HTTPException(status_code=400, detail="Batch size too large (max 100)")
-    
-    # Запуск анализа в фоне
-    background_tasks.add_task(process_batch_analysis, requests, token_data)
-    
+
+    session_id = None
+    try:
+        if supabase_client:
+            # Создаем сессию
+            name = f"session-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            profile_type = requests[0].profile_type if requests else "software"
+            insert_res = supabase_client.table("analysis_sessions").insert({
+                "user_id": token_data.get("user_id"),
+                "name": name,
+                "profile_type": profile_type,
+                "total_domains": len(requests),
+                "status": "processing",
+                "started_at": datetime.now().isoformat(),
+            }).execute()
+            session_id = (insert_res.data or [{}])[0].get("id")
+
+            # Добавляем домены
+            rows = [{
+                "session_id": session_id,
+                "domain": r.domain,
+                "url": r.url,
+                "status": "pending",
+            } for r in requests]
+            supabase_client.table("session_domains").insert(rows).execute()
+    except Exception as e:
+        logger.warning(f"Supabase session init failed: {e}")
+
+    # Запуск фона
+    background_tasks.add_task(process_batch_analysis, requests, token_data, session_id)
+
     return {
         "message": f"Batch analysis started for {len(requests)} websites",
-        "batch_id": f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        "session_id": session_id,
     }
 
-async def process_batch_analysis(requests: list[AnalysisRequest], token_data: Dict[str, Any]):
-    """Обработка батча анализов в фоне (временно отключена)"""
-    
-    logger.info(f"Batch analysis requested for {len(requests)} websites")
-    logger.info("Batch processing temporarily disabled - returning mock results")
-    
-    # Временная заглушка
+async def process_batch_analysis(
+    requests: list[AnalysisRequest],
+    token_data: Dict[str, Any],
+    session_id: Optional[str] = None,
+):
+    """Обработка батча: параллельный минимальный анализ + сохранение в Supabase."""
+
+    logger.info(f"Batch analysis started: {len(requests)} websites, session={session_id}")
+    semaphore = asyncio.Semaphore(5)
     results = []
     errors = []
-    
-    for request in requests:
-        # Мок результат
-        results.append({
-            "domain": request.domain,
-            "result": {
-                "classification": "Service temporarily unavailable",
-                "confidence": 0.0,
-                "comment": "Batch processing is being initialized",
-                "processing_time": 0.0
-            }
-        })
-    
-    logger.info(f"Mock batch analysis completed: {len(results)} processed")
+
+    async def worker(req: AnalysisRequest):
+        async with semaphore:
+            try:
+                r = await _run_minimal_analysis(req.url, req.domain, req.profile_type)
+
+                # Save to analyses
+                analysis_id = None
+                try:
+                    if supabase_client:
+                        payload = {
+                            "user_id": token_data.get("user_id"),
+                            "domain": req.domain,
+                            "url": r["_url"],
+                            "profile_type": req.profile_type,
+                            "status": "completed",
+                            "result_classification": r["classification"],
+                            "result_confidence": r["confidence"],
+                            "result_comment": r["comment"],
+                            "processing_time_seconds": round(r["processing_time"], 2),
+                            "raw_data": r["raw_data"],
+                        }
+                        ins = supabase_client.table("analyses").insert(payload).execute()
+                        analysis_id = (ins.data or [{}])[0].get("id")
+                        if session_id:
+                            # update session_domains
+                            supabase_client.table("session_domains").update({
+                                "status": "completed",
+                                "analysis_id": analysis_id,
+                            }).eq("session_id", session_id).eq("domain", req.domain).execute()
+                except Exception as se:
+                    logger.warning(f"Supabase save in batch failed: {se}")
+
+                results.append({"domain": req.domain, "analysis_id": analysis_id, "result": r})
+            except Exception as e:
+                errors.append({"domain": req.domain, "error": str(e)})
+                try:
+                    if supabase_client and session_id:
+                        supabase_client.table("session_domains").update({
+                            "status": "failed",
+                        }).eq("session_id", session_id).eq("domain", req.domain).execute()
+                except Exception:
+                    pass
+
+    await asyncio.gather(*(worker(r) for r in requests))
+
+    # finalize session
+    try:
+        if supabase_client and session_id:
+            supabase_client.table("analysis_sessions").update({
+                "processed_domains": len(results) + len(errors),
+                "successful_analyses": len(results),
+                "failed_analyses": len(errors),
+                "status": "completed",
+                "completed_at": datetime.now().isoformat(),
+            }).eq("id", session_id).execute()
+    except Exception as e:
+        logger.warning(f"Supabase finalize session failed: {e}")
+
+    logger.info(f"Batch analysis finished: {len(results)} ok, {len(errors)} failed")
     return {"results": results, "errors": errors}
 
 @app.get("/profiles")
