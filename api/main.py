@@ -57,10 +57,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS настройки
+# CORS настройки (через ENV CORS_ORIGINS="https://app.example.com,https://admin.example.com")
+_cors_env = os.getenv("CORS_ORIGINS", "").strip()
+_cors_list = [o.strip() for o in _cors_env.split(",") if o.strip()] if _cors_env else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # В продакшене ограничить доменами
+    allow_origins=_cors_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -165,10 +167,56 @@ class HealthResponse(BaseModel):
 #         raise HTTPException(status_code=400, detail=f"Unsupported profile type: {profile_type}")
 #     return pipelines[profile_type]
 
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
-    """Верификация JWT токена (временно отключена)"""
-    # Временно возвращаем заглушку
-    return {"user_id": "test", "role": "admin"}
+async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
+    """Верификация JWT токена через Supabase Auth.
+
+    Требует ENV: SUPABASE_URL, SUPABASE_ANON_KEY (или SERVICE_KEY)
+    В non-production режиме при отсутствии ENV — допускает заглушку.
+    """
+    token = credentials.credentials if credentials else None
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing authorization token")
+
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_api_key = os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
+    environment = os.getenv("ENVIRONMENT", "development").lower()
+
+    if not supabase_url or not supabase_api_key:
+        if environment == "production":
+            raise HTTPException(status_code=500, detail="Auth not configured")
+        logger.warning("Supabase auth env not set, using stub auth (non-production)")
+        return {"user_id": "dev-user", "role": "admin"}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.get(
+                f"{supabase_url.rstrip('/')}/auth/v1/user",
+                headers={
+                    "apikey": supabase_api_key,
+                    "Authorization": f"Bearer {token}",
+                },
+            )
+            if res.status_code != 200:
+                raise HTTPException(status_code=401, detail="Invalid or expired token")
+            user = res.json() or {}
+            user_id = user.get("id")
+            role = "user"
+
+            # Пытаемся получить роль из profiles
+            try:
+                if supabase_client and user_id:
+                    prof = supabase_client.table("profiles").select("role").eq("id", user_id).limit(1).execute()
+                    if getattr(prof, "data", None):
+                        role = (prof.data[0] or {}).get("role", role)
+            except Exception as e:
+                logger.warning(f"Fetch profile role failed: {e}")
+
+            return {"user_id": user_id, "role": role}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Auth verification error: {e}")
+        raise HTTPException(status_code=500, detail="Auth service error")
 
 
 def _get_page_text(url: str, timeout_seconds: float = 10.0) -> str:
