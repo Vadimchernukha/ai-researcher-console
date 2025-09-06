@@ -566,21 +566,54 @@ async def get_prompts(
     prompt_type: str = None,
     token_data: Dict[str, Any] = Depends(verify_token)
 ):
-    """Получение списка промптов (временно отключено)"""
-    # Admin only
+    """Прокси к Edge Function manage-prompts (GET). Требуется admin."""
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    return {"prompts": [], "status": "Service temporarily unavailable"}
+
+    supabase_url = os.getenv("SUPABASE_URL")
+    if not supabase_url:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+
+    headers = {
+        "Content-Type": "application/json",
+        # Передаем исходный токен; если недоступен, fallback на service key
+        "Authorization": f"Bearer {os.getenv('SUPABASE_SERVICE_KEY')}",
+        "apikey": os.getenv("SUPABASE_SERVICE_KEY") or "",
+    }
+    params = {}
+    if profile_type:
+        params["profile_type"] = profile_type
+    if prompt_type:
+        params["prompt_type"] = prompt_type
+
+    async with httpx.AsyncClient(timeout=float(os.getenv("SUPABASE_EDGE_TIMEOUT", "10"))) as client:
+        resp = await client.get(f"{supabase_url.rstrip('/')}/functions/v1/manage-prompts", headers=headers, params=params)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        return resp.json()
 
 @app.post("/prompts")
 async def create_prompt(
     prompt_data: Dict[str, Any],
     token_data: Dict[str, Any] = Depends(verify_token)
 ):
-    """Создание нового промпта (временно отключено)"""
+    """Создание промпта через Edge Function manage-prompts/create. Admin only."""
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    return {"status": "Service temporarily unavailable"}
+
+    supabase_url = os.getenv("SUPABASE_URL")
+    if not supabase_url:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {os.getenv('SUPABASE_SERVICE_KEY')}",
+        "apikey": os.getenv("SUPABASE_SERVICE_KEY") or "",
+    }
+    async with httpx.AsyncClient(timeout=float(os.getenv("SUPABASE_EDGE_TIMEOUT", "10"))) as client:
+        resp = await client.post(f"{supabase_url.rstrip('/')}/functions/v1/manage-prompts/create", headers=headers, json=prompt_data)
+        if resp.status_code not in (200, 201):
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        return resp.json()
 
 @app.put("/prompts/{prompt_id}")
 async def update_prompt(
@@ -588,20 +621,45 @@ async def update_prompt(
     update_data: Dict[str, Any],
     token_data: Dict[str, Any] = Depends(verify_token)
 ):
-    """Обновление промпта (временно отключено)"""
+    """Обновление промпта через Edge Function manage-prompts/update. Admin only."""
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    return {"status": "Service temporarily unavailable"}
+    supabase_url = os.getenv("SUPABASE_URL")
+    if not supabase_url:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {os.getenv('SUPABASE_SERVICE_KEY')}",
+        "apikey": os.getenv("SUPABASE_SERVICE_KEY") or "",
+    }
+    payload = {"id": prompt_id, **update_data}
+    async with httpx.AsyncClient(timeout=float(os.getenv("SUPABASE_EDGE_TIMEOUT", "10"))) as client:
+        resp = await client.post(f"{supabase_url.rstrip('/')}/functions/v1/manage-prompts/update", headers=headers, json=payload)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        return resp.json()
 
 @app.post("/prompts/{prompt_id}/set-default")
 async def set_default_prompt(
     prompt_id: str,
     token_data: Dict[str, Any] = Depends(verify_token)
 ):
-    """Установка промпта как активного по умолчанию (временно отключено)"""
+    """Установка промпта по умолчанию через Edge Function manage-prompts/set-default. Admin only."""
     if token_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    return {"status": "Service temporarily unavailable"}
+    supabase_url = os.getenv("SUPABASE_URL")
+    if not supabase_url:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {os.getenv('SUPABASE_SERVICE_KEY')}",
+        "apikey": os.getenv("SUPABASE_SERVICE_KEY") or "",
+    }
+    async with httpx.AsyncClient(timeout=float(os.getenv("SUPABASE_EDGE_TIMEOUT", "10"))) as client:
+        resp = await client.post(f"{supabase_url.rstrip('/')}/functions/v1/manage-prompts/set-default", headers=headers, json={"id": prompt_id})
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        return resp.json()
 
 # События приложения
 @app.on_event("startup")
