@@ -205,6 +205,12 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
     supabase_api_key = os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
     environment = os.getenv("ENVIRONMENT", "development").lower()
 
+    # Optional admin bypass using service key for ops/testing
+    service_key = os.getenv("SUPABASE_SERVICE_KEY")
+    allow_service_admin = os.getenv("ALLOW_SERVICE_KEY_ADMIN", "false").lower() == "true"
+    if allow_service_admin and service_key and token == service_key:
+        return {"user_id": "service-admin", "role": "admin"}
+
     if not supabase_url or not supabase_api_key:
         if environment == "production":
             raise HTTPException(status_code=500, detail="Auth not configured")
