@@ -17,6 +17,12 @@ from pydantic import BaseModel, Field
 # import jwt  # Временно отключено
 # from playwright.async_api import async_playwright  # Временно отключено
 
+# Добавляем отладочную информацию
+print("Starting application...")
+print(f"Python path: {sys.path}")
+print(f"Current working directory: {os.getcwd()}")
+print(f"Files in current directory: {os.listdir('.')}")
+
 # Добавляем путь к исходному коду
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
