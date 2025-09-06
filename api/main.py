@@ -119,7 +119,7 @@ async def log_requests(request, call_next):
         raise
 
 # Безопасность
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 # Supabase client (optional)
 supabase_client: Optional[Client] = None
