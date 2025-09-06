@@ -36,7 +36,7 @@ except Exception as e:
 
 # Добавляем путь к исходному коду  
 sys.path.insert(0, '/app')
-sys.path.insert(0, '/app/src')
+# sys.path.insert(0, '/app/src')  # Удалено - папка src не используется
 
 # Временно отключаем сложные импорты для тестирования
 # from src.pipelines.classification_pipeline import EnhancedPipeline

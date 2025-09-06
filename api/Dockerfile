@@ -32,9 +32,9 @@ RUN playwright install chromium || true
 # Копирование исходного кода из папки api
 COPY api/ .
 
-# Копирование дополнительных папок проекта
-COPY src/ /app/src/
-COPY config/ /app/config/
+# Копирование дополнительных папок проекта (если нужны)
+# COPY src/ /app/src/
+# COPY config/ /app/config/
 
 # Изменение владельца файлов
 RUN chown -R app:app /app
