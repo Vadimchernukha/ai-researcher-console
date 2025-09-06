@@ -15,9 +15,6 @@ WORKDIR /app
 # Копирование файлов зависимостей
 COPY requirements.txt .
 
-# Создание пользователя для безопасности
-RUN useradd --create-home --shell /bin/bash app
-
 # Установка Python зависимостей
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -28,8 +25,9 @@ RUN playwright install-deps chromium
 # Копирование исходного кода
 COPY . .
 
-# Передача прав пользователю
-RUN chown -R app:app /app
+# Создание пользователя для безопасности
+RUN useradd --create-home --shell /bin/bash app \
+    && chown -R app:app /app
 USER app
 
 # Переменные окружения
