@@ -197,6 +197,10 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
     Требует ENV: SUPABASE_URL, SUPABASE_ANON_KEY (или SERVICE_KEY)
     В non-production режиме при отсутствии ENV — допускает заглушку.
     """
+    # Testing/ops bypass
+    if os.getenv("SKIP_AUTH", "false").lower() == "true":
+        return {"user_id": "test-admin", "role": "admin"}
+
     token = credentials.credentials if credentials else None
     if not token:
         raise HTTPException(status_code=401, detail="Missing authorization token")
