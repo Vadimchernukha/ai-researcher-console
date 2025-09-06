@@ -22,15 +22,19 @@ RUN useradd --create-home --shell /bin/bash app
 WORKDIR /app
 
 # Копирование и установка зависимостей как root
-COPY requirements.txt .
+COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Установка Playwright и браузеров как root
 RUN playwright install chromium
 RUN playwright install-deps chromium
 
-# Копирование исходного кода
-COPY . .
+# Копирование исходного кода из папки api
+COPY api/ .
+
+# Копирование дополнительных папок проекта
+COPY src/ /app/src/
+COPY config/ /app/config/
 
 # Изменение владельца файлов
 RUN chown -R app:app /app
