@@ -14,6 +14,7 @@ import json
 import httpx
 from bs4 import BeautifulSoup
 import google.generativeai as genai
+from supabase import create_client, Client
 import uvicorn
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -93,6 +94,9 @@ async def log_requests(request, call_next):
 
 # Безопасность
 security = HTTPBearer()
+
+# Supabase client (optional)
+supabase_client: Optional[Client] = None
 
 # Модели данных
 class AnalysisRequest(BaseModel):
@@ -275,7 +279,7 @@ async def analyze_website(
         reasoning = str(parsed.get("reasoning", "")).strip()
 
         took = time.time() - started
-        return AnalysisResponse(
+        response_obj = AnalysisResponse(
             domain=request.domain,
             classification=final_output if classification == "Match" else "Not Relevant",
             confidence=70.0 if classification == "Match" else 30.0,
@@ -284,12 +288,33 @@ async def analyze_website(
             raw_data={"gemini": parsed},
         )
 
+        # Save to Supabase if configured (best-effort)
+        try:
+            if supabase_client:
+                payload = {
+                    "user_id": token_data.get("user_id"),
+                    "domain": request.domain,
+                    "url": url,
+                    "profile_type": request.profile_type,
+                    "status": "completed",
+                    "result_classification": response_obj.classification,
+                    "result_confidence": response_obj.confidence,
+                    "result_comment": response_obj.comment,
+                    "processing_time_seconds": round(response_obj.processing_time, 2),
+                    "raw_data": response_obj.raw_data,
+                }
+                supabase_client.table("analyses").insert(payload).execute()
+        except Exception as e:
+            logger.warning(f"Supabase save failed: {e}")
+
+        return response_obj
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Analyze error for {request.url}: {e}")
         took = time.time() - started
-        return AnalysisResponse(
+        response_obj = AnalysisResponse(
             domain=request.domain,
             classification="Service temporarily unavailable",
             confidence=0.0,
@@ -297,6 +322,24 @@ async def analyze_website(
             processing_time=took,
             raw_data={"error": str(e)},
         )
+
+        # Attempt to store failed analysis too
+        try:
+            if supabase_client:
+                payload = {
+                    "user_id": token_data.get("user_id"),
+                    "domain": request.domain,
+                    "url": request.url,
+                    "profile_type": request.profile_type,
+                    "status": "failed",
+                    "error_message": str(e),
+                    "raw_data": response_obj.raw_data,
+                }
+                supabase_client.table("analyses").insert(payload).execute()
+        except Exception as se:
+            logger.warning(f"Supabase save (failed case) error: {se}")
+
+        return response_obj
 
 @app.post("/analyze-batch")
 async def analyze_batch(
@@ -408,13 +451,25 @@ async def startup_event():
         logger.info(f"Environment: {environment}")
         logger.info(f"Port: {port}")
         
-        # Проверка наличия Google API ключей
+        # Проверка ключей/ENV
         google_key = os.getenv("GOOGLE_API_KEY")
-        if google_key:
-            logger.info("Google API key found")
-        else:
-            logger.warning("Google API key not found - some features will be disabled")
+        logger.info("Google API key: %s", "set" if google_key else "missing")
+
+        # Проверка Supabase ENV
+        supabase_url_present = bool(os.getenv("SUPABASE_URL"))
+        supabase_key_present = bool(os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY"))
+        logger.info("Supabase URL: %s, key: %s", "set" if supabase_url_present else "missing", "set" if supabase_key_present else "missing")
         
+        # Инициализация Supabase при наличии ENV
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+        if supabase_url and supabase_key:
+            global supabase_client
+            supabase_client = create_client(supabase_url, supabase_key)
+            logger.info("Supabase client initialized")
+        else:
+            logger.info("Supabase env not set, skipping client init")
+
         logger.info("API initialized successfully (minimal mode)")
         print("✅ API startup completed successfully")
         
