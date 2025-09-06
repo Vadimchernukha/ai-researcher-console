@@ -1,5 +1,5 @@
 # FastAPI и веб-сервер
-fastapi==0.104.1
+fastapi==0.103.2
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
 
@@ -9,11 +9,11 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 
 # HTTP клиент
-httpx==0.25.2
+httpx==0.24.1
 requests==2.31.0
 
 # Валидация данных
-pydantic==2.5.0
+pydantic==2.4.2
 email-validator==2.1.0
 
 # Логирование и мониторинг
