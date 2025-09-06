@@ -50,13 +50,6 @@ RUN apt-get update && apt-get install -y \
     libxcb-xf86dri0 \
     libxcb-xtest0 \
     libxcb-xv0 \
-    libxcb-xxf86vm0 \
-    libxcb-xvmc0 \
-    libxcb-res0 \
-    libxcb-record0 \
-    libxcb-screensaver0 \
-    libxcb-xprint0 \
-    libxcb-xselinux0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Установка рабочей директории
