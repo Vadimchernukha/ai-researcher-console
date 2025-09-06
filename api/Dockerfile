@@ -36,6 +36,9 @@ COPY . .
 RUN chown -R app:app /app
 
 # Проверка что main.py доступен и синтаксически корректен
+RUN ls -la /app && echo "Files in /app:"
+RUN python -c "import sys; print('Python path:', sys.path)"
+RUN test -f main.py && echo "✅ main.py found" || echo "❌ main.py not found"
 RUN python -m py_compile main.py
 RUN python -c "import main; print('✅ main.py imported successfully')"
 
