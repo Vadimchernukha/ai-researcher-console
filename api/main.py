@@ -15,6 +15,8 @@ import httpx
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 from supabase import create_client, Client
+from collections import defaultdict, deque
+from fastapi.responses import PlainTextResponse
 import uvicorn
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,6 +69,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting (per IP + path)
+_rate_buckets: Dict[str, deque] = defaultdict(deque)
+RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "60"))
+RATE_LIMIT_WINDOW_SEC = int(os.getenv("RATE_LIMIT_WINDOW_SEC", "60"))
+
+@app.middleware("http")
+async def rate_limit(request, call_next):
+    now = time.time()
+    try:
+        ip = request.client.host if request.client else "unknown"
+        key = f"{ip}:{request.url.path}"
+        bucket = _rate_buckets[key]
+        # prune old
+        while bucket and now - bucket[0] > RATE_LIMIT_WINDOW_SEC:
+            bucket.popleft()
+        if len(bucket) >= RATE_LIMIT_MAX:
+            return PlainTextResponse("Too Many Requests", status_code=429)
+        bucket.append(now)
+    except Exception:
+        pass
+    return await call_next(request)
 
 # Простое логирование запросов/ответов
 @app.middleware("http")
@@ -543,7 +567,9 @@ async def get_prompts(
     token_data: Dict[str, Any] = Depends(verify_token)
 ):
     """Получение списка промптов (временно отключено)"""
-    
+    # Admin only
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
     return {"prompts": [], "status": "Service temporarily unavailable"}
 
 @app.post("/prompts")
@@ -552,7 +578,8 @@ async def create_prompt(
     token_data: Dict[str, Any] = Depends(verify_token)
 ):
     """Создание нового промпта (временно отключено)"""
-    
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
     return {"status": "Service temporarily unavailable"}
 
 @app.put("/prompts/{prompt_id}")
@@ -562,7 +589,8 @@ async def update_prompt(
     token_data: Dict[str, Any] = Depends(verify_token)
 ):
     """Обновление промпта (временно отключено)"""
-    
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
     return {"status": "Service temporarily unavailable"}
 
 @app.post("/prompts/{prompt_id}/set-default")
@@ -571,7 +599,8 @@ async def set_default_prompt(
     token_data: Dict[str, Any] = Depends(verify_token)
 ):
     """Установка промпта как активного по умолчанию (временно отключено)"""
-    
+    if token_data.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
     return {"status": "Service temporarily unavailable"}
 
 # События приложения
