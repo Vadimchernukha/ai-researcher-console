@@ -65,6 +65,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Простое логирование запросов/ответов
+@app.middleware("http")
+async def log_requests(request, call_next):
+    start_time = time.time()
+    try:
+        response = await call_next(request)
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.info(
+            "HTTP %s %s -> %s in %dms",
+            request.method,
+            request.url.path,
+            getattr(response, "status_code", "-"),
+            duration_ms,
+        )
+        return response
+    except Exception as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.error(
+            "HTTP %s %s -> ERROR %s in %dms",
+            request.method,
+            request.url.path,
+            str(e),
+            duration_ms,
+        )
+        raise
+
 # Безопасность
 security = HTTPBearer()
 
