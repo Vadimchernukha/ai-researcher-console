@@ -26,8 +26,9 @@ try:
 except Exception as e:
     print(f"Debug info error: {e}")
 
-# Добавляем путь к исходному коду
-# sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # Временно отключено
+# Добавляем путь к исходному коду  
+sys.path.insert(0, '/app')
+sys.path.insert(0, '/app/src')
 
 # Временно отключаем сложные импорты для тестирования
 # from src.pipelines.classification_pipeline import EnhancedPipeline
@@ -201,42 +202,29 @@ async def analyze_batch(
     }
 
 async def process_batch_analysis(requests: list[AnalysisRequest], token_data: Dict[str, Any]):
-    """Обработка батча анализов в фоне"""
+    """Обработка батча анализов в фоне (временно отключена)"""
     
+    logger.info(f"Batch analysis requested for {len(requests)} websites")
+    logger.info("Batch processing temporarily disabled - returning mock results")
+    
+    # Временная заглушка
     results = []
     errors = []
     
     for request in requests:
-        try:
-            pipeline = await get_pipeline(request.profile_type)
-            
-            url = request.url
-            if not url.startswith("http"):
-                url = f"https://{url}"
-            
-            result = await pipeline.process_website_comprehensive(browser_context, url)
-            
-            if result:
-                results.append({
-                    "domain": request.domain,
-                    "result": result
-                })
-            else:
-                errors.append({
-                    "domain": request.domain,
-                    "error": "No result returned"
-                })
-                
-        except Exception as e:
-            errors.append({
-                "domain": request.domain,
-                "error": str(e)
-            })
+        # Мок результат
+        results.append({
+            "domain": request.domain,
+            "result": {
+                "classification": "Service temporarily unavailable",
+                "confidence": 0.0,
+                "comment": "Batch processing is being initialized",
+                "processing_time": 0.0
+            }
+        })
     
-    logger.info(f"Batch analysis completed: {len(results)} successful, {len(errors)} failed")
-    
-    # Здесь можно отправить результаты обратно в Supabase
-    # или сохранить их в файл/базу данных
+    logger.info(f"Mock batch analysis completed: {len(results)} processed")
+    return {"results": results, "errors": errors}
 
 @app.get("/profiles")
 async def get_available_profiles():
@@ -326,13 +314,27 @@ async def shutdown_event():
 
 # Запуск сервера
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))
-    host = os.getenv("HOST", "0.0.0.0")
-    
-    uvicorn.run(
-        "main:app",
-        host=host,
-        port=port,
-        reload=os.getenv("ENVIRONMENT") == "development",
-        log_level="info"
-    )
+    try:
+        port = int(os.getenv("PORT", 8000))
+        host = os.getenv("HOST", "0.0.0.0")
+        environment = os.getenv("ENVIRONMENT", "development")
+        
+        print(f"🚀 Starting AI Researcher Console API")
+        print(f"   Host: {host}")
+        print(f"   Port: {port}")
+        print(f"   Environment: {environment}")
+        print(f"   Working Directory: {os.getcwd()}")
+        
+        uvicorn.run(
+            "main:app",
+            host=host,
+            port=port,
+            reload=environment == "development",
+            log_level="info"
+        )
+        
+    except Exception as e:
+        print(f"❌ Failed to start server: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
