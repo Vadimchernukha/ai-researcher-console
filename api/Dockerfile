@@ -21,6 +21,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN which uvicorn || echo "uvicorn not found in PATH"
 RUN python -c "import uvicorn; print('uvicorn imported successfully')"
 
+# Проверка установки uvicorn
+RUN which uvicorn || echo "uvicorn not found in PATH"
+RUN python -c "import uvicorn; print('uvicorn imported successfully')"
+
 # Установка Playwright браузеров и зависимостей
 RUN playwright install chromium
 RUN playwright install-deps chromium
