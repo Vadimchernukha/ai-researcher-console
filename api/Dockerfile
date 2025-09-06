@@ -25,10 +25,9 @@ RUN playwright install-deps chromium
 # Копирование исходного кода
 COPY . .
 
-# Создание пользователя для безопасности
+# Создание пользователя для безопасности (но не переключаемся на него)
 RUN useradd --create-home --shell /bin/bash app \
     && chown -R app:app /app
-USER app
 
 # Переменные окружения
 ENV PYTHONPATH=/app
