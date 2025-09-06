@@ -1,38 +1,8 @@
-# FastAPI и веб-сервер
-fastapi==0.103.2
-uvicorn[standard]==0.24.0
-python-multipart==0.0.6
-
-# Аутентификация и безопасность
-PyJWT==2.8.0
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-
-# HTTP клиент
-httpx==0.24.1
-requests==2.31.0
-
-# Валидация данных
-pydantic==2.4.2
-email-validator==2.1.0
-
-# Логирование и мониторинг
-structlog==23.2.0
-python-json-logger==2.0.7
-
-# Существующие зависимости из основного проекта
-google-generativeai==0.3.2
-playwright==1.40.0
-beautifulsoup4==4.12.2
-lxml==4.9.3
-aiofiles==23.2.1
-tqdm==4.66.1
-psutil==5.9.6
-nest-asyncio==1.5.8
-pandas==2.1.4
-numpy==1.25.2
-python-dotenv==1.0.0
-urllib3==2.1.0
-
-# Supabase клиент
-supabase==2.3.0
+# Минимальные зависимости для тестирования
+fastapi
+uvicorn
+httpx
+beautifulsoup4
+google-generativeai
+python-dotenv
+supabase

@@ -38,12 +38,8 @@ except Exception as e:
 sys.path.insert(0, '/app')
 # sys.path.insert(0, '/app/src')  # Удалено - папка src не используется
 
-# Временно отключаем сложные импорты для тестирования
-# from src.pipelines.classification_pipeline import EnhancedPipeline
-# from src.analyzers.ai_analyzer import MultiStageAnalyzer
-# from src.scrapers.content_scraper import smart_fetch_content
-# import config.settings as config
-# from prompt_manager import initialize_prompt_manager, get_prompt_manager
+# Импорты для 6-этапного анализа
+from analysis_pipeline import EnhancedPipeline
 
 # Настройка логирования
 logging.basicConfig(
@@ -312,63 +308,95 @@ async def health_check():
             version="1.0.0"
         )
 
-async def _run_minimal_analysis(url: str, domain: str, profile_type: str) -> Dict[str, Any]:
-    """Общий минимальный анализ: возвращает словарь с полями для AnalysisResponse."""
+async def _run_enhanced_analysis(url: str, domain: str, profile_type: str) -> Dict[str, Any]:
+    """6-этапный анализ сайта с использованием EnhancedPipeline."""
+    try:
+        pipeline = EnhancedPipeline()
+        result = await pipeline.analyze_website(url, domain, profile_type)
+        
+        # Адаптируем результат к ожидаемому формату
+        return {
+            "domain": result["domain"],
+            "classification": result["classification"],
+            "confidence": result["confidence"],
+            "comment": result["comment"],
+            "processing_time": result["processing_time"],
+            "raw_data": result["raw_data"],
+            "_url": result["url"],
+            "_match": result["decision"] == "ACCEPT",
+            "_relevance_score": result["relevance_score"],
+            "_stages_completed": result["stages_completed"],
+            "_total_stages": result["total_stages"]
+        }
+    except Exception as e:
+        logger.error(f"Enhanced analysis failed for {url}: {e}")
+        # Fallback к простому анализу
+        return await _run_minimal_analysis_fallback(url, domain, profile_type)
+
+
+async def _run_minimal_analysis_fallback(url: str, domain: str, profile_type: str) -> Dict[str, Any]:
+    """Fallback к простому анализу если 6-этапный не работает."""
     started = time.time()
 
     if not url.startswith("http"):
         url = f"https://{url}"
 
-    # 1) Получение текста страницы
-    page_text = await asyncio.to_thread(_get_page_text, url)
-    if not page_text or len(page_text) < 50:
-        raise HTTPException(status_code=422, detail="Insufficient page content")
-
-    # 2) Классификация через Gemini (простая схема Match/No Match)
-    model = await asyncio.to_thread(_get_gemini_model)
-    prompt = (
-        "You are a business analyst. Decide if this website represents a software product/company "
-        "relevant to B2B software profiles. Return strict JSON with fields: reasoning, classification, final_output.\n\n"
-        f"Content:\n{page_text[:4000]}\n\n"
-        "Rules: classification is either 'Match' or 'No Match'. final_output must be either '+ Relevant - Software Lead' or '- Not Relevant'."
-    )
-
-    resp = await model.generate_content_async(prompt)
-    raw_text = (resp.text or "").strip()
-    parsed = None
     try:
-        parsed = json.loads(raw_text)
-    except Exception:
-        if "{" in raw_text and "}" in raw_text:
-            candidate = raw_text[raw_text.find("{") : raw_text.rfind("}") + 1]
-            try:
-                parsed = json.loads(candidate)
-            except Exception:
-                parsed = None
+        # Простое получение контента
+        page_text = await asyncio.to_thread(_get_page_text, url)
+        if not page_text or len(page_text) < 50:
+            raise HTTPException(status_code=422, detail="Insufficient page content")
 
-    if not parsed or not isinstance(parsed, dict):
-        parsed = {
-            "reasoning": "Fallback: could not parse structured response",
-            "classification": "No Match",
-            "final_output": "- Not Relevant",
+        # Простая классификация
+        model = await asyncio.to_thread(_get_gemini_model)
+        prompt = (
+            f"Analyze this website for {profile_type} profile. "
+            f"Content: {page_text[:2000]}\n\n"
+            f"Return JSON: {{'classification': 'category', 'confidence': 0-100, 'reasoning': 'explanation'}}"
+        )
+
+        resp = await model.generate_content_async(prompt)
+        raw_text = (resp.text or "").strip()
+        
+        try:
+            parsed = json.loads(raw_text)
+        except:
+            parsed = {
+                "classification": "Unknown",
+                "confidence": 50,
+                "reasoning": "Fallback analysis"
+            }
+
+        took = time.time() - started
+
+        return {
+            "domain": domain,
+            "classification": parsed.get("classification", "Unknown"),
+            "confidence": float(parsed.get("confidence", 50)),
+            "comment": parsed.get("reasoning", "Fallback analysis"),
+            "processing_time": took,
+            "raw_data": {"fallback": parsed},
+            "_url": url,
+            "_match": parsed.get("confidence", 50) > 70,
+            "_relevance_score": parsed.get("confidence", 50),
+            "_stages_completed": 1,
+            "_total_stages": 1
         }
-
-    classification = str(parsed.get("classification", "No Match")).strip()
-    final_output = str(parsed.get("final_output", "- Not Relevant")).strip()
-    reasoning = str(parsed.get("reasoning", "")).strip()
-    took = time.time() - started
-
-    result = {
-        "domain": domain,
-        "classification": final_output if classification == "Match" else "Not Relevant",
-        "confidence": 70.0 if classification == "Match" else 30.0,
-        "comment": reasoning or "Minimal Gemini classification",
-        "processing_time": took,
-        "raw_data": {"gemini": parsed},
-        "_url": url,
-        "_match": classification == "Match",
-    }
-    return result
+    except Exception as e:
+        took = time.time() - started
+        return {
+            "domain": domain,
+            "classification": "Analysis Failed",
+            "confidence": 0,
+            "comment": f"Error: {str(e)}",
+            "processing_time": took,
+            "raw_data": {"error": str(e)},
+            "_url": url,
+            "_match": False,
+            "_relevance_score": 0,
+            "_stages_completed": 0,
+            "_total_stages": 1
+        }
 
 
 @app.post("/analyze", response_model=AnalysisResponse)
@@ -376,10 +404,10 @@ async def analyze_website(
     request: AnalysisRequest,
     token_data: Dict[str, Any] = Depends(verify_token),
 ):
-    """Минимальный анализ сайта: httpx + BeautifulSoup + Gemini классификация."""
+    """6-этапный анализ сайта: EnhancedPipeline с fallback к простому анализу."""
 
     try:
-        r = await _run_minimal_analysis(request.url, request.domain, request.profile_type)
+        r = await _run_enhanced_analysis(request.url, request.domain, request.profile_type)
         response_obj = AnalysisResponse(
             domain=r["domain"],
             classification=r["classification"],
@@ -503,7 +531,7 @@ async def process_batch_analysis(
     async def worker(req: AnalysisRequest):
         async with semaphore:
             try:
-                r = await _run_minimal_analysis(req.url, req.domain, req.profile_type)
+                r = await _run_enhanced_analysis(req.url, req.domain, req.profile_type)
 
                 # Save to analyses
                 analysis_id = None
