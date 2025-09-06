@@ -26,8 +26,8 @@ COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Установка Playwright и браузеров как root
-RUN playwright install chromium
-RUN playwright install-deps chromium
+# Пропускаем playwright install-deps, так как на Debian trixie пакеты недоступны в fallback
+RUN playwright install chromium || true
 
 # Копирование исходного кода из папки api
 COPY api/ .
